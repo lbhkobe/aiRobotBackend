@@ -1,0 +1,335 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>AI机器人聊天演示</title>
+    <style>
+        body {
+            font-family: Arial, sans-serif;
+            max-width: 800px;
+            margin: 0 auto;
+            padding: 20px;
+        }
+        #chat-container {
+            height: 400px;
+            border: 1px solid #ccc;
+            padding: 10px;
+            margin-bottom: 10px;
+            overflow-y: auto;
+            border-radius: 5px;
+        }
+        .message {
+            margin-bottom: 10px;
+            padding: 8px 12px;
+            border-radius: 18px;
+            max-width: 70%;
+            position: relative;
+        }
+        .user-message {
+            background-color: #e3f2fd;
+            margin-left: auto;
+            border-bottom-right-radius: 0;
+        }
+        .bot-message {
+            background-color: #f1f1f1;
+            margin-right: auto;
+            border-bottom-left-radius: 0;
+        }
+        .thought-message {
+            background-color: #fff8e1;
+            margin-right: auto;
+            border: 1px dashed #ffcc80;
+            border-radius: 5px;
+            font-size: 0.9em;
+            max-width: 90%;
+        }
+        .file-message {
+            text-align: center;
+            margin: 10px 0;
+        }
+        .file-message img {
+            max-width: 200px;
+            max-height: 200px;
+            border-radius: 5px;
+            border: 1px solid #ddd;
+        }
+        .input-container {
+            display: flex;
+            gap: 10px;
+        }
+        #user-input {
+            flex: 1;
+            padding: 8px;
+            border: 1px solid #ccc;
+            border-radius: 4px;
+        }
+        button {
+            padding: 8px 16px;
+            background-color: #4caf50;
+            color: white;
+            border: none;
+            border-radius: 4px;
+            cursor: pointer;
+        }
+        button:hover {
+            background-color: #45a049;
+        }
+        button:disabled {
+            background-color: #cccccc;
+            cursor: not-allowed;
+        }
+        .status {
+            font-size: 0.8em;
+            color: #666;
+            margin-top: 5px;
+        }
+        .typing-indicator {
+            display: inline-block;
+            margin-left: 5px;
+        }
+        .typing-indicator span {
+            display: inline-block;
+            width: 8px;
+            height: 8px;
+            border-radius: 50%;
+            background-color: #999;
+            margin: 0 2px;
+            animation: typing 1s infinite ease-in-out;
+        }
+        .typing-indicator span:nth-child(2) {
+            animation-delay: 0.2s;
+        }
+        .typing-indicator span:nth-child(3) {
+            animation-delay: 0.4s;
+        }
+        @keyframes typing {
+            0% { transform: translateY(0); }
+            50% { transform: translateY(-5px); }
+            100% { transform: translateY(0); }
+        }
+    </style>
+</head>
+<body>
+    <h1>AI机器人聊天演示</h1>
+    
+    <div id="chat-container"></div>
+    
+    <div class="status" id="status">等待开始对话...</div>
+    
+    <div class="input-container">
+        <input type="text" id="user-input" placeholder="输入您的问题..." />
+        <button id="send-btn">发送</button>
+        <button id="cancel-btn" disabled>取消</button>
+    </div>
+    
+    <!-- 引入JS脚本 -->
+    <script src="invokeAIRobot.js"></script>
+    <script>
+        // DOM元素
+        const chatContainer = document.getElementById('chat-container');
+        const userInput = document.getElementById('user-input');
+        const sendBtn = document.getElementById('send-btn');
+        const cancelBtn = document.getElementById('cancel-btn');
+        const statusElement = document.getElementById('status');
+        
+        // 用于存储会话ID
+        let currentConversationId = null;
+        // 当前请求的控制器
+        let currentController = null;
+        // 当前回答的消息ID
+        let currentMessageId = null;
+        
+        // 添加用户消息到聊天容器
+        function addUserMessage(text) {
+            const messageDiv = document.createElement('div');
+            messageDiv.className = 'message user-message';
+            messageDiv.textContent = text;
+            chatContainer.appendChild(messageDiv);
+            chatContainer.scrollTop = chatContainer.scrollHeight;
+        }
+        
+        // 添加机器人消息到聊天容器
+        function addBotMessage(text, messageId) {
+            // 检查是否已存在同ID消息（用于更新现有消息）
+            let messageDiv = document.querySelector(`.bot-message[data-message-id="${messageId}"]`);
+            
+            if (!messageDiv) {
+                // 创建新消息
+                messageDiv = document.createElement('div');
+                messageDiv.className = 'message bot-message';
+                messageDiv.setAttribute('data-message-id', messageId);
+                chatContainer.appendChild(messageDiv);
+            }
+            
+            // 更新消息内容
+            messageDiv.textContent = text;
+            chatContainer.scrollTop = chatContainer.scrollHeight;
+        }
+        
+        // 添加思考过程消息
+        function addThoughtMessage(thought, observation) {
+            const messageDiv = document.createElement('div');
+            messageDiv.className = 'message thought-message';
+            
+            const thoughtPara = document.createElement('p');
+            thoughtPara.innerHTML = '<strong>思考:</strong> ' + thought;
+            messageDiv.appendChild(thoughtPara);
+            
+            if (observation) {
+                const obsPara = document.createElement('p');
+                obsPara.innerHTML = '<strong>观察:</strong> ' + observation;
+                messageDiv.appendChild(obsPara);
+            }
+            
+            chatContainer.appendChild(messageDiv);
+            chatContainer.scrollTop = chatContainer.scrollHeight;
+        }
+        
+        // 添加文件/图片消息
+        function addFileMessage(fileData) {
+            const fileDiv = document.createElement('div');
+            fileDiv.className = 'file-message';
+            
+            if (fileData.type === 'image') {
+                const img = document.createElement('img');
+                img.src = fileData.url;
+                img.alt = '机器人发送的图片';
+                fileDiv.appendChild(img);
+            } else {
+                const link = document.createElement('a');
+                link.href = fileData.url;
+                link.textContent = '下载文件';
+                link.target = '_blank';
+                fileDiv.appendChild(link);
+            }
+            
+            chatContainer.appendChild(fileDiv);
+            chatContainer.scrollTop = chatContainer.scrollHeight;
+        }
+        
+        // 更新状态显示
+        function updateStatus(text, isTyping = false) {
+            statusElement.innerHTML = text;
+            if (isTyping) {
+                const typingIndicator = document.createElement('span');
+                typingIndicator.className = 'typing-indicator';
+                typingIndicator.innerHTML = '<span></span><span></span><span></span>';
+                statusElement.appendChild(typingIndicator);
+            }
+        }
+        
+        // 处理发送消息
+        function sendMessage() {
+            const text = userInput.value.trim();
+            if (!text) return;
+            
+            // 禁用输入并显示状态
+            userInput.disabled = true;
+            sendBtn.disabled = true;
+            cancelBtn.disabled = false;
+            
+            // 添加用户消息
+            addUserMessage(text);
+            
+            // 显示机器人正在思考
+            updateStatus('AI机器人正在思考...', true);
+            
+            // 调用API
+            currentController = invokeAIRobot({
+                userId: 'demo_user', // 演示用户ID
+                query: text,
+                conversationId: currentConversationId,
+                
+                // 接收消息回调
+                onMessage: function(data) {
+                    currentMessageId = data.message_id;
+                    addBotMessage(data.answer, data.message_id);
+                },
+                
+                // 思考过程回调
+                onThought: function(data) {
+                    if (!document.querySelector('#show-thoughts').checked) return;
+                    addThoughtMessage(data.thought, data.observation);
+                },
+                
+                // 文件回调
+                onFile: function(data) {
+                    addFileMessage(data);
+                },
+                
+                // 对话结束回调
+                onEnd: function(data) {
+                    // 保存会话ID以便继续对话
+                    currentConversationId = data.conversation_id;
+                    
+                    // 重置UI状态
+                    userInput.disabled = false;
+                    sendBtn.disabled = false;
+                    cancelBtn.disabled = true;
+                    currentController = null;
+                    
+                    updateStatus('对话已完成 (会话ID: ' + data.conversation_id + ')');
+                    userInput.value = '';
+                    userInput.focus();
+                },
+                
+                // 错误处理回调
+                onError: function(error) {
+                    updateStatus('错误: ' + error.message);
+                    addBotMessage('抱歉，发生了错误: ' + error.message, 'error-' + Date.now());
+                    
+                    // 重置UI状态
+                    userInput.disabled = false;
+                    sendBtn.disabled = false;
+                    cancelBtn.disabled = true;
+                    currentController = null;
+                }
+            });
+        }
+        
+        // 取消请求
+        function cancelRequest() {
+            if (currentController) {
+                currentController.abort();
+                currentController = null;
+                updateStatus('请求已取消');
+                
+                // 重置UI状态
+                userInput.disabled = false;
+                sendBtn.disabled = false;
+                cancelBtn.disabled = true;
+            }
+        }
+        
+        // 事件监听器
+        sendBtn.addEventListener('click', sendMessage);
+        userInput.addEventListener('keypress', function(e) {
+            if (e.key === 'Enter') sendMessage();
+        });
+        cancelBtn.addEventListener('click', cancelRequest);
+        
+        // 添加思考过程显示选项
+        const optionsDiv = document.createElement('div');
+        optionsDiv.style.margin = '10px 0';
+        
+        const thoughtsCheckbox = document.createElement('input');
+        thoughtsCheckbox.type = 'checkbox';
+        thoughtsCheckbox.id = 'show-thoughts';
+        
+        const thoughtsLabel = document.createElement('label');
+        thoughtsLabel.htmlFor = 'show-thoughts';
+        thoughtsLabel.textContent = '显示思考过程';
+        
+        optionsDiv.appendChild(thoughtsCheckbox);
+        optionsDiv.appendChild(thoughtsLabel);
+        
+        document.body.insertBefore(optionsDiv, chatContainer);
+        
+        // 页面加载完成时自动聚焦输入框
+        window.onload = function() {
+            userInput.focus();
+        };
+    </script>
+</body>
+</html> 
