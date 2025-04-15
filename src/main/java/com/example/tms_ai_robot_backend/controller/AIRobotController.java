@@ -11,6 +11,7 @@ import java.io.IOException;
 
 @RestController
 @RequestMapping("/api/robot")
+@CrossOrigin(origins = "*", allowedHeaders = "*")
 public class AIRobotController {
 
     @Autowired
@@ -23,19 +24,39 @@ public class AIRobotController {
      */
     @PostMapping(value = "/chat", produces = MediaType.TEXT_EVENT_STREAM_VALUE)
     public SseEmitter chat(@RequestBody AIRobotRequest request) {
-        SseEmitter emitter = new SseEmitter(0L); // 不超时
+        SseEmitter emitter = new SseEmitter(300000L); // 5分钟超时
+        
         try {
+            // 设置超时或断开连接的回调
+            emitter.onTimeout(() -> {
+                try {
+                    emitter.send(SseEmitter.event()
+                            .name("error")
+                            .data("连接超时"));
+                } catch (IOException e) {
+                    // 忽略发送超时消息时的异常
+                }
+                emitter.complete();
+            });
+            
+            emitter.onCompletion(() -> {
+                // 可以在这里处理连接完成后的清理工作
+            });
+            
+            // 启动异步处理
             aiRobotService.processStreamingRequest(request, emitter);
+            
         } catch (Exception e) {
             try {
                 emitter.send(SseEmitter.event()
                         .name("error")
                         .data(e.getMessage()));
-                emitter.complete();
             } catch (IOException ex) {
-                emitter.completeWithError(ex);
+                // 忽略发送错误消息时的异常
             }
+            emitter.completeWithError(e);
         }
+        
         return emitter;
     }
 } 
